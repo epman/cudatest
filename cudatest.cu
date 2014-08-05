@@ -9,7 +9,107 @@
 #include <cuda_runtime.h>
 #include <vector_types.h>
 
+#define REPETITIONS	10
+
+#define NS_PER_SECOND	1000000000L
+
+
+#define VECTOR_SIZE	1000*1024
+// CUDA kernel. Each thread takes care of one element of c
+// From https://www.olcf.ornl.gov/tutorials/cuda-vector-addition
+__global__ 
+void kernel_vector_sum(float *dst, float *v, int n)
+{
+    // Get our global thread ID
+    int id = blockIdx.x*blockDim.x+threadIdx.x;
+ 
+    // Make sure we do not go out of bounds
+    if (id < n)
+        dst[id] += v[id];
+}
+
+
+void cpu_vector_sum(float *dst, float *v, int n)
+{
+  for (int i=0; i<n; i++) 
+        dst[n] += v[n];
+}
+
+
+void vectorSumTest()
+{
+  struct timespec t0, t1; 
+  uint64_t dt;
+  float *dst = new float[VECTOR_SIZE];
+  float *v = new float[VECTOR_SIZE];
+  std::cout << "CPU Vector Sum test. ";
+  dt = 0;
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    cpu_vector_sum(dst, v, VECTOR_SIZE);
+    clock_gettime(CLOCK_MONOTONIC, &t1); 
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time: " << ((double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+  delete[] v;
+  delete[] dst;
+
+  
+  int numCudaThreads = 1;
+  cudaMalloc(&dst, VECTOR_SIZE*sizeof(float));
+  cudaMalloc(&v, VECTOR_SIZE*sizeof(float));
+  dt = 0;
+  int blockSize = 1024;
+  int gridSize = (int)ceil((float)numCudaThreads/blockSize);
+  std::cout << "GPU Vector Sum test. ";
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    clock_gettime(CLOCK_MONOTONIC, &t1);     
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time for "<< numCudaThreads << " threads: " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+  
+  
+  numCudaThreads = 64;
+  dt = 0;
+  blockSize = 1024;
+  gridSize = (int)ceil((float)numCudaThreads/blockSize);
+  std::cout << "GPU Vector Sum test. ";
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    clock_gettime(CLOCK_MONOTONIC, &t1);     
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time for "<< numCudaThreads << " threads: " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+
+  numCudaThreads = 128;
+  dt = 0;
+  blockSize = 1024;
+  gridSize = (int)ceil((float)numCudaThreads/blockSize);
+  std::cout << "GPU Vector Sum test. ";
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    clock_gettime(CLOCK_MONOTONIC, &t1);     
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time for "<< numCudaThreads << " threads: " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+  
+  cudaFree(&dst);
+  cudaFree(&v);
+  
+}
+
+
+
 #define LOOP_COUNT	10000000
+
 
 __global__
 void gpu_loopTest()
@@ -28,27 +128,45 @@ void cpu_loopTest()
   }
 }
 
+// Loop
+void loopTest()
+{
+  struct timespec t0, t1; 
+  uint64_t dt;
+  std::cout << "CPU Loop test. ";
+  dt = 0;
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    cpu_loopTest();
+    clock_gettime(CLOCK_MONOTONIC, &t1); 
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time: " << ((double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+
+  dt = 0;
+  dim3 dimBlock( 1, 1 );
+  dim3 dimGrid( 1, 1 );
+  std::cout << "GPU Loop test. ";
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    gpu_loopTest <<< dimGrid, dimBlock >>> ();
+    clock_gettime(CLOCK_MONOTONIC, &t1);     
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time: " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+}
+
 
 int main() 
 {
-  
+  std::cout.imbue( std::locale("") );
   std::cout << "CUDA test" << std::endl;
-  struct timespec t0, t1; 
-
-  // Loop
-  clock_gettime(CLOCK_MONOTONIC, &t0); 
-  cpu_loopTest();
-  clock_gettime(CLOCK_MONOTONIC, &t1); 
-  uint64_t dt = 1000000000L * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
-  std::cout << "CPU Loop test. Time: " << dt << " ns" << std::endl;
-
-  clock_gettime(CLOCK_MONOTONIC, &t0); 
-  dim3 dimBlock( 1, 1 );
-  dim3 dimGrid( 1, 1 );
-  gpu_loopTest <<< dimGrid, dimBlock >>> ();
-  clock_gettime(CLOCK_MONOTONIC, &t1); 
-  dt = 1000000000L * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
-  std::cout << "GPU Loop test. Time: " << dt << " ns" << std::endl;
+  std::cout << "Averages for " << REPETITIONS << " repetitions." << std::endl;
+  
+  loopTest();
+  vectorSumTest();
 
   return 0;
 }
