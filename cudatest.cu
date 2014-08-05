@@ -2,6 +2,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include <iostream>
 
@@ -9,7 +10,7 @@
 #include <cuda_runtime.h>
 #include <vector_types.h>
 
-#define REPETITIONS	10
+#define REPETITIONS	1000
 
 #define NS_PER_SECOND	1000000000L
 
@@ -40,25 +41,24 @@ void vectorSumTest()
 {
   struct timespec t0, t1; 
   uint64_t dt;
-  float *dst = new float[VECTOR_SIZE];
-  float *v = new float[VECTOR_SIZE];
+  float *dst_cpu = new float[VECTOR_SIZE];
+  float *v_cpu = new float[VECTOR_SIZE];
   std::cout << "CPU Vector Sum test. ";
   dt = 0;
   for (int r=0; r<REPETITIONS; r++) 
   {
     clock_gettime(CLOCK_MONOTONIC, &t0); 
-    cpu_vector_sum(dst, v, VECTOR_SIZE);
+    cpu_vector_sum(dst_cpu, v_cpu, VECTOR_SIZE);
     clock_gettime(CLOCK_MONOTONIC, &t1); 
     dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
   }
   std::cout << "Time: " << ((double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
-  delete[] v;
-  delete[] dst;
 
-  
+  float *dst_gpu;
+  float *v_gpu;
   int numCudaThreads = 1;
-  cudaMalloc(&dst, VECTOR_SIZE*sizeof(float));
-  cudaMalloc(&v, VECTOR_SIZE*sizeof(float));
+  cudaMalloc(&dst_gpu, VECTOR_SIZE*sizeof(float));
+  cudaMalloc(&v_gpu, VECTOR_SIZE*sizeof(float));
   dt = 0;
   int blockSize = 1024;
   int gridSize = (int)ceil((float)numCudaThreads/blockSize);
@@ -66,7 +66,7 @@ void vectorSumTest()
   for (int r=0; r<REPETITIONS; r++) 
   {
     clock_gettime(CLOCK_MONOTONIC, &t0); 
-    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst_gpu, v_gpu, VECTOR_SIZE);
     clock_gettime(CLOCK_MONOTONIC, &t1);     
     dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
   }
@@ -81,7 +81,7 @@ void vectorSumTest()
   for (int r=0; r<REPETITIONS; r++) 
   {
     clock_gettime(CLOCK_MONOTONIC, &t0); 
-    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst_gpu, v_gpu, VECTOR_SIZE);
     clock_gettime(CLOCK_MONOTONIC, &t1);     
     dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
   }
@@ -95,14 +95,34 @@ void vectorSumTest()
   for (int r=0; r<REPETITIONS; r++) 
   {
     clock_gettime(CLOCK_MONOTONIC, &t0); 
-    kernel_vector_sum <<< gridSize, blockSize >>> (dst, v, VECTOR_SIZE);
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst_gpu, v_gpu, VECTOR_SIZE);
     clock_gettime(CLOCK_MONOTONIC, &t1);     
     dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
   }
   std::cout << "Time for "<< numCudaThreads << " threads: " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
   
-  cudaFree(&dst);
-  cudaFree(&v);
+  numCudaThreads = 128;
+  dt = 0;
+  blockSize = 1024;
+  gridSize = (int)ceil((float)numCudaThreads/blockSize);
+  std::cout << "GPU Vector Sum test. ";
+  const int vsize = VECTOR_SIZE*sizeof(float);
+  for (int r=0; r<REPETITIONS; r++) 
+  {
+    clock_gettime(CLOCK_MONOTONIC, &t0); 
+    cudaMemcpy( dst_gpu, dst_cpu, vsize, cudaMemcpyHostToDevice );
+    cudaMemcpy( v_gpu, v_cpu, vsize, cudaMemcpyHostToDevice );   
+    kernel_vector_sum <<< gridSize, blockSize >>> (dst_gpu, v_gpu, VECTOR_SIZE);
+    cudaMemcpy( dst_cpu, dst_gpu, vsize, cudaMemcpyDeviceToHost );
+    clock_gettime(CLOCK_MONOTONIC, &t1);     
+    dt += NS_PER_SECOND * (t1.tv_sec - t0.tv_sec) + t1.tv_nsec - t0.tv_nsec;
+  }
+  std::cout << "Time for "<< numCudaThreads << " threads (with memcpy): " << ( (double)dt/(double)(REPETITIONS*NS_PER_SECOND)) << " s (" << (dt/REPETITIONS) << " ns)" << std::endl;
+
+  cudaFree(&dst_gpu);
+  cudaFree(&v_gpu);
+  delete[] v_cpu;
+  delete[] dst_cpu;
   
 }
 
